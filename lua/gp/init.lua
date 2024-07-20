@@ -495,6 +495,56 @@ _H.ends_with = function(str, ending)
     return ending == "" or str:sub(-#ending) == ending
 end
 
+--- Detect and execute agent-specific functions from the provided chunk.
+--- Functions should be in the format {"function_name":..., "args": {...}}.
+--- @param chunk string # The input string containing a potential function call.
+--- @return table|nil# Returns function name, arguments and results
+_H._detect_and_execute_function = function(chunk, agent)
+    local func_name, args_table = _H._detect_function(chunk)
+    print(func_name)
+    print(chunk)
+    if not func_name then
+        -- Function pattern not found, return the chunk
+        return nil
+    end
+    -- Execute the function
+    local status, result = pcall(M.agents[agent].functions[func_name],
+                                 args_table)
+    if status then
+        return {
+            function_name = func_name,
+            arguments = args_table,
+            result = result
+        }
+    else
+        return {
+            function_name = func_name,
+            arguments = args_table,
+            result = "Error executing function"
+        }
+    end
+end
+
+--- Detect function call from the provided chunk.
+--- @param chunk string # The input string containing a potential function call.
+--- @return string|nil, table|nil # Returns the function name and table arguments if detected, otherwise nil.
+_H._detect_function = function(chunk)
+    local func_pattern_with_args =
+        '{"function_name"%s*:%s*"([%w_]+)"%s*,%s*"args"%s*:%s*(%b{})}' -- matches {"function_name":...,"args":{...}}
+    local func_pattern_without_args = '{"function_name"%s*:%s*"([%w_]+)"}' -- matches {"function_name":...}
+
+    local func_name, args_json = chunk:match(func_pattern_with_args)
+    if func_name and args_json then
+        local success, decoded_args = pcall(vim.fn.json_decode, args_json)
+        if success then return func_name, decoded_args end
+    end
+
+    func_name = chunk:match(func_pattern_without_args)
+    if func_name then return func_name, {} end
+
+    return nil
+end
+
 --------------------------------------------------------------------------------
 -- Module helper functions and variables
 --------------------------------------------------------------------------------
