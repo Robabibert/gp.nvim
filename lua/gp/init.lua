@@ -55,6 +55,7 @@ local M = {
 	cmd = {}, -- default command functions
 	config = {}, -- config variables
 	hooks = {}, -- user defined command functions
+    registered_functions = {},
 	spinner = require("gp.spinner"), -- spinner module
 }
 
@@ -3707,4 +3708,20 @@ function M.generate_image(prompt, model, quality, style, size)
 	end)
 end
 
+
+---@param name string # name of the function to register
+---@param func function # function to register
+--- Registered functions can be executed by the agent.
+function M.register_function(name, func)
+	if type(name) ~= "string" then
+		M.error("Function name must be a string.")
+		return
+	end
+	if type(func) ~= "function" then
+		M.error("Second argument must be a function.")
+		return
+	end
+	M.registered_functions[name] = func
+	M.info("Function '" .. name .. "' has been registered successfully.")
+end
 return M
