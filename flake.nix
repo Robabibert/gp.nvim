@@ -17,7 +17,9 @@
           lua
 		  luarocks
           sumneko-lua-language-server
+		  luajitPackages.vusted
         ];
+		shellHook="exec fish";
       };
     }
   );
