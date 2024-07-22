@@ -1514,10 +1514,16 @@ end
 M.chat_template = [[
 # topic: ?
 
-%s %s %s %s
+- file: %s
+%s
+Write your queries after %s. Use `%s` or :%sChatRespond to generate a response.
+Response generation can be terminated by using `%s` or :%sChatStop command.
+Chats are saved automatically. To delete this chat, use `%s` or :%sChatDelete.
+Be cautious of very long chats. Start a fresh chat by using `%s` or :%sChatNew.
+
 ---
 
-]]
+%s]]
 
 M._toggle = {}
 
@@ -1920,10 +1926,19 @@ M.new_chat = function(params, toggle, system_prompt, agent)
         system_prompt = ""
     end
 
-    local chat_file = "- chat file: " .. string.match(filename, "([^/]+)$") ..
-                          "\n"
-    local template = string.format(M.chat_template, chat_file, model, provider,
-                                   system_prompt)
+    local template = string.format(M.chat_template,
+                                   string.match(filename, "([^/]+)$"),
+                                   model .. provider .. system_prompt,
+                                   M.config.chat_user_prefix,
+                                   M.config.chat_shortcut_respond.shortcut,
+                                   M.config.cmd_prefix,
+                                   M.config.chat_shortcut_stop.shortcut,
+                                   M.config.cmd_prefix,
+                                   M.config.chat_shortcut_delete.shortcut,
+                                   M.config.cmd_prefix,
+                                   M.config.chat_shortcut_new.shortcut,
+                                   M.config.cmd_prefix,
+                                   M.config.chat_user_prefix)
 
     -- escape underscores (for markdown)
     template = template:gsub("_", "\\_")
