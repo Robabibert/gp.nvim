@@ -2830,7 +2830,7 @@ M.Prompt = function(params, target, agent, template, prompt, whisper, callback)
     local end_line = start_line
 
     -- handle range
-    if params.range == 2 then
+    if params and params.range == 2 then
         start_line = params.line1
         end_line = params.line2
         local lines = vim.api.nvim_buf_get_lines(buf, start_line - 1, end_line,
@@ -3067,7 +3067,7 @@ M.Prompt = function(params, target, agent, template, prompt, whisper, callback)
     end
 
     vim.schedule(function()
-        local args = params.args or ""
+        local args = (params and params.args) or ""
         if args:match("%S") then
             cb(args)
             return
