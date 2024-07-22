@@ -498,11 +498,10 @@ end
 --- Detect and execute agent-specific functions from the provided chunk.
 --- Functions should be in the format {"function_name":..., "args": {...}}.
 --- @param chunk string # The input string containing a potential function call.
+--- @param agent string # The name of the agent
 --- @return table|nil# Returns function name, arguments and results
 _H._detect_and_execute_function = function(chunk, agent)
     local func_name, args_table = _H._detect_function(chunk)
-    print(func_name)
-    print(chunk)
     if not func_name then
         -- Function pattern not found, return the chunk
         return nil
