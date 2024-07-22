@@ -5,22 +5,19 @@
 
   outputs = { self, nixpkgs, flake-utils }:
 
-  flake-utils.lib.eachDefaultSystem (system:
-    let
-      pkgs = import nixpkgs { inherit system; };
-    in
-    {
-      devShell = pkgs.mkShell {
-        name = "lua-lsp";
+    flake-utils.lib.eachDefaultSystem (system:
+      let pkgs = import nixpkgs { inherit system; };
+      in {
+        devShell = pkgs.mkShell {
+          name = "lua-lsp";
 
-        buildInputs = with pkgs; [
-          lua
-		  luarocks
-          sumneko-lua-language-server
-		  luajitPackages.vusted
-        ];
-		shellHook="exec fish";
-      };
-    }
-  );
+          buildInputs = with pkgs; [
+            lua
+            luarocks
+            sumneko-lua-language-server
+            luajitPackages.vusted
+          ];
+          shellHook = "exec fish";
+        };
+      });
 }
