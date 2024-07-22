@@ -50,6 +50,7 @@ local M = {
     _state = {}, -- table of state variables
     _deprecated = {}, -- table of deprecated options
     agents = {}, -- table of agents
+	functions={}, -- table of functions callable by all agents
     image_agents = {}, -- table of image agents
     cmd = {}, -- default command functions
     config = {}, -- config variables
@@ -196,6 +197,17 @@ M.can_handle = function(buf)
         if handle_info.buf == buf then return false end
     end
     return true
+end
+
+-- remove a process handle from the _handles table using the buffer
+---@param buf number # buffer number
+M.remove_handle_by_buf = function(buf)
+    for i, handle_info in ipairs(M._handles) do
+        if handle_info.buf == buf then
+            table.remove(M._handles, i)
+            return
+        end
+    end
 end
 
 -- remove a process handle from the _handles table using its pid
@@ -547,6 +559,20 @@ end
 --------------------------------------------------------------------------------
 -- Module helper functions and variables
 --------------------------------------------------------------------------------
+
+-- This function detects and executes a function from the provided prompt answer 
+-- and then triggers a response in the chat after writing the result into the buffer.
+-- @param chunk The input chunk containing potential functions to detect and execute.
+-- @param buf The buffer to use for the chat response.
+M.resolve_and_respond_with_function = function(chunk, buf)
+    if buf == nil then return end
+    local result = _H._detect_and_execute_function(chunk, M._state.chat_agent)
+    if result then
+        vim.api.nvim_buf_set_lines(buf, -1, -1, false, {vim.inspect(result)})
+        M.remove_handle_by_buf(buf)
+        M.chat_respond(nil, buf, nil)
+    end
+end
 
 ---@param msg string # message to log
 ---@param kind string # hl group to use for logging
@@ -1359,6 +1385,9 @@ M.query = function(buf, provider, payload, handler, on_exit, callback)
                         callback(qt.response)
                     end)
                 end
+                vim.schedule(function()
+                    M.resolve_and_respond_with_function(qt.response, buf)
+                end)
             end
         end
     end
@@ -2088,9 +2117,13 @@ M.cmd.ChatDelete = function()
     end)
 end
 
-M.chat_respond = function(params)
-    local buf = vim.api.nvim_get_current_buf()
-    local win = vim.api.nvim_get_current_win()
+-- Responds to a chat message with the given parameters.
+-- @param params Table containing the parameters for the response.
+-- @param buf (optional) Buffer number to use. Defaults to the current buffer.
+-- @param win (optional) Window number to use. Defaults to the current window.
+M.chat_respond = function(params, buffer, window)
+    local buf = buffer or vim.api.nvim_get_current_buf()
+    local win = window or vim.api.nvim_get_current_win()
 
     if not M.valid_api_key() then return end
 
@@ -2146,7 +2179,7 @@ M.chat_respond = function(params)
     -- iterate over lines
     local start_index = header_end + 1
     local end_index = #lines
-    if params.range == 2 then
+    if params and params.range == 2 then
         start_index = math.max(start_index, params.line1)
         end_index = math.min(end_index, params.line2)
     end
@@ -2793,7 +2826,7 @@ UnitTests = function(gp, params)
 end,
 ]]
 
----@param params table  # vim command parameters such as range, args, etc.
+---@param params table|nil  # vim command parameters such as range, args, etc.
 ---@param target integer | function | table  # where to put the response
 ---@param agent table  # obtained from get_command_agent or get_chat_agent
 ---@param template string  # template with model instructions
