@@ -4,14 +4,21 @@ describe('_H._detect_and_execute_function', function()
 
     -- Mocking dependencies
     before_each(function()
-        local func_name = "myFunction"
-        local func_impl = function(...) return "Function Executed", ... end
-
+        local agent = "test_agent"
+        local function_spec = {
+            func = function(...) return "Function Executed", ... end,
+            name = "myFunction",
+            description = "A test function.",
+            use_cases = "Testing purposes.",
+            arguments = {},
+            doc = "Detailed documentation for myFunction."
+        }
+    
         -- Ensure the agent exists
         gp.agents[agent] = {functions = {}}
-
+    
         -- Register the function
-        gp.register_function_for_agent(agent, func_name, func_impl)
+        gp.register_function_for_agent(agent, function_spec)
     end)
 
     it('should successfully detect and execute the function', function()

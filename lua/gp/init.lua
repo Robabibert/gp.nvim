@@ -519,7 +519,7 @@ _H._detect_and_execute_function = function(chunk, agent)
         return nil
     end
     -- Execute the function
-    local status, result = pcall(M.agents[agent].functions[func_name],
+    local status, result = pcall(M.agents[agent].functions[func_name].func,
                                  args_table)
     if status then
         return {
@@ -940,6 +940,14 @@ M.setup = function(opts)
         M.providers.openai = {}
         M.resolve_secret("openai", function() M.providers.openai = nil end)
     end
+
+    -- make global functions accessible
+    for _, agent in pairs(M.agents) do
+        for _, func in pairs(M.functions) do
+            M.register_function_for_agent(agent, func)
+        end
+    end
+
 end
 
 ---@provider string # provider name
@@ -3464,35 +3472,91 @@ function M.generate_image(prompt, model, quality, style, size)
     end)
 end
 
+---@param function_spec table # function_spec to register, which includes:
+---                           - func (function): the function to be registered.
+---                           - name (string): the name of the function.
+---                           - description (string): a brief description of what the function does.
+---                           - use_cases (string): scenarios or contexts where this function can be used.
+---                           - arguments (table): a table describing the arguments that the function takes.
+---                           - doc (string): detailed documentation for the function.
+---@return string # formatted string representation of the function specification
+_H.create_llm_instruction_string = function(function_spec)
+    local spec_copy = vim.deepcopy(function_spec)
+    spec_copy.func = nil
+    return vim.inspect(spec_copy)
+end
+
+--- Generates part of a system prompt string that details the available functions for a given agent.
+--- This prompt includes instructions on how to call these functions using JSON format.
+---
+--- @param agent table # The agent containing the functions to be included in the prompt.
+--- @return string # A string representing the system prompt with details on available functions and call instructions.
+_H.create_function_system_prompt = function(agent)
+    local function_prompt = ""
+    if agent.functions and next(agent.functions) ~= nil then
+        function_prompt = "You have the following functions at your disposal.\n"
+        for _, fun in ipairs(agent.functions) do
+            function_prompt = function_prompt .. fun.llm_instruction .. "\n"
+        end
+        function_prompt = function_prompt .. [[
+To call one of the functions provide the name and arguments in a json format.
+All parameters are named.
+For example if you want to call the function myFunction and supply param1 with the string "value1", respond with the following json:
+```json
+   '{"function_name": "myFunction", "args": {"param1": "value1"}}'
+```
+The User will respond with the result of the function as well as the function name and the used arguments.
+]]
+    end
+    return function_prompt
+end
+
 ---@param agent_name string | nil # name of the agent to register the function for (optional)
----@param name string # name of the function to register
----@param func function # function to register
+---@param function_spec table # function_spec to register, which includes:
+---                           - func (function): the function to be registered.
+---                           - name (string): the name of the function.
+---                           - description (string): a brief description of what the function does.
+---                           - use_cases (string): scenarios or contexts where this function can be used.
+---                           - arguments (table): a table describing the arguments that the function takes.
+---                           - doc (string): detailed documentation for the function.
 --- Registered functions can be executed by the agent.
-M.register_function_for_agent = function(agent_name, name, func)
-    if type(name) ~= "string" then
-        M.error("Function name must be a string.")
-        return
+M.register_function_for_agent = function(agent_name, function_spec)
+    if type(function_spec) ~= "table" then
+        error("function_spec must be a table")
     end
-    if type(func) ~= "function" then
-        M.error("Second argument must be a function.")
-        return
+    if type(function_spec.func) ~= "function" then
+        error("function_spec must have a 'func' field of type function")
     end
+    if type(function_spec.name) ~= "string" then
+        error("function_spec must have a 'name' field of type string")
+    end
+    if type(function_spec.description) ~= "string" then
+        error("function_spec must have a 'description' field of type string")
+    end
+    if type(function_spec.use_cases) ~= "string" then
+        error("function_spec must have a 'use_cases' field of type string")
+    end
+    if type(function_spec.arguments) ~= "table" then
+        error("function_spec must have an 'arguments' field of type table")
+    end
+    if type(function_spec.doc) ~= "string" then
+        error("function_spec must have a 'doc' field of type string")
+    end
+
     if agent_name ~= nil and type(agent_name) ~= "string" then
         M.error("Agent name must be a string or nil.")
         return
     end
+    function_spec.llm_instruction = _H.create_llm_instruction_string(
+                                        function_spec)
 
     local target_agent = agent_name and M.agents[agent_name] or M
     if not target_agent then
         M.error("Agent '" .. agent_name .. "' does not exist.")
         return
     end
-
     target_agent.functions = target_agent.functions or {}
-    target_agent.functions[name] = func
+    target_agent.functions[function_spec.name] = function_spec
 
-    M.info("Function '" .. name ..
-               "' has been registered successfully for agent '" ..
-               (agent_name or "global") .. "'.")
 end
 return M
