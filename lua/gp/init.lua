@@ -518,21 +518,23 @@ _H._detect_and_execute_function = function(chunk, agent)
         -- Function pattern not found, return the chunk
         return nil
     end
-    -- Execute the function
-    local status, result = pcall(M.agents[agent].functions[func_name].func,
-                                 args_table)
-    if status then
-        return {
-            function_name = func_name,
-            arguments = args_table,
-            result = result
-        }
-    else
-        return {
-            function_name = func_name,
-            arguments = args_table,
-            result = "Error executing function"
-        }
+    -- Execute the function if func_name is present in the table
+    if M.agents[agent].functions[func_name] then
+        local status, result = pcall(M.agents[agent].functions[func_name].func,
+                                     args_table)
+        if status then
+            return {
+                function_name = func_name,
+                arguments = args_table,
+                result = result
+            }
+        else
+            return {
+                function_name = func_name,
+                arguments = args_table,
+                result = "Error executing function"
+            }
+        end
     end
 end
 
@@ -556,6 +558,11 @@ _H._detect_function = function(chunk)
     return nil
 end
 
+_H.split_lines = function(str)
+    local lines = {}
+    for line in str:gmatch("[^\r\n]+") do table.insert(lines, line) end
+    return lines
+end
 --------------------------------------------------------------------------------
 -- Module helper functions and variables
 --------------------------------------------------------------------------------
@@ -568,7 +575,8 @@ M.resolve_and_respond_with_function = function(chunk, buf)
     if buf == nil then return end
     local result = _H._detect_and_execute_function(chunk, M._state.chat_agent)
     if result then
-        vim.api.nvim_buf_set_lines(buf, -1, -1, false, {vim.inspect(result)})
+        local lines = _H.split_lines(vim.inspect(result))
+        vim.api.nvim_buf_set_lines(buf, -1, -1, false, lines)
         M.remove_handle_by_buf(buf)
         M.chat_respond(nil, buf, nil)
     end
@@ -748,33 +756,41 @@ M.setup = function(opts)
     M.config = vim.deepcopy(config)
 
     -- merge nested tables
-    local mergeTables = {"hooks", "agents", "image_agents", "providers"}
+    local mergeTables = {
+        "hooks", "agents", "image_agents", "providers", "functions"
+    }
     for _, tbl in ipairs(mergeTables) do
         M[tbl] = M[tbl] or {}
-        ---@diagnostic disable-next-line: param-type-mismatch
-        for k, v in pairs(M.config[tbl]) do
-            if tbl == "hooks" or tbl == "providers" then
-                M[tbl][k] = v
-            elseif tbl == "agents" or tbl == "image_agents" then
-                M[tbl][v.name] = v
+        if tbl == "functions" then
+            M[tbl] = vim.list_extend(M.config[tbl] or {}, opts[tbl] or {})
+        else
+            ---@diagnostic disable-next-line: param-type-mismatch
+            for k, v in pairs(M.config[tbl]) do
+                if tbl == "hooks" or tbl == "providers" then
+                    M[tbl][k] = v
+                elseif tbl == "agents" or tbl == "image_agents" then
+                    M[tbl][v.name] = v
+                end
             end
-        end
-        M.config[tbl] = nil
+            M.config[tbl] = nil
 
-        opts[tbl] = opts[tbl] or {}
-        for k, v in pairs(opts[tbl]) do
-            if tbl == "hooks" then
-                M[tbl][k] = v
-            elseif tbl == "providers" then
-                M[tbl][k] = M[tbl][k] or {}
-                M[tbl][k].disable = false
-                for pk, pv in pairs(v) do M[tbl][k][pk] = pv end
-                if next(v) == nil then M[tbl][k] = nil end
-            elseif tbl == "agents" or tbl == "image_agents" then
-                M[tbl][v.name] = v
+            opts[tbl] = opts[tbl] or {}
+            for k, v in pairs(opts[tbl]) do
+                if tbl == "hooks" then
+                    M[tbl][k] = v
+                elseif tbl == "providers" then
+                    M[tbl][k] = M[tbl][k] or {}
+                    M[tbl][k].disable = false
+                    for pk, pv in pairs(v) do
+                        M[tbl][k][pk] = pv
+                    end
+                    if next(v) == nil then M[tbl][k] = nil end
+                elseif tbl == "agents" or tbl == "image_agents" then
+                    M[tbl][v.name] = v
+                end
             end
+            opts[tbl] = nil
         end
-        opts[tbl] = nil
     end
 
     for k, v in pairs(opts) do
@@ -816,6 +832,19 @@ M.setup = function(opts)
         end
     end
 
+    -- make global functions accessible
+    -- update system prompts with function prompts
+    for name, agent in pairs(M.agents) do
+        for _, func in pairs(M.functions) do
+            M.register_function_for_agent(agent.name, func)
+        end
+        M.agents[name].system_prompt = (agent.system_prompt or "") ..
+                                           _H.create_function_system_prompt(
+                                               agent)
+        -- agent.system_prompt = agent.system_prompt:gsub('["]', '\\"')
+        -- agent.system_prompt = agent.system_prompt:gsub("[']", "\\'")
+    end
+
     -- remove invalid agents
     for name, agent in pairs(M.agents) do
         if type(agent) ~= "table" or agent.disable then
@@ -826,17 +855,6 @@ M.setup = function(opts)
                     "If you want to disable an agent, use: { name = '" .. name ..
                     "', disable = true },")
             M.agents[name] = nil
-        end
-    end
-
-    for name, agent in pairs(M.image_agents) do
-        if type(agent) ~= "table" or agent.disable then
-            M.image_agents[name] = nil
-        elseif not agent.model then
-            M.warning("Image agent " .. name .. " is missing model\n" ..
-                          "If you want to disable an agent, use: { name = '" ..
-                          name .. "', disable = true },")
-            M.image_agents[name] = nil
         end
     end
 
@@ -939,13 +957,6 @@ M.setup = function(opts)
     if not M.providers.openai then
         M.providers.openai = {}
         M.resolve_secret("openai", function() M.providers.openai = nil end)
-    end
-
-    -- make global functions accessible
-    for _, agent in pairs(M.agents) do
-        for _, func in pairs(M.functions) do
-            M.register_function_for_agent(agent, func)
-        end
     end
 
 end
@@ -1961,10 +1972,6 @@ M.new_chat = function(params, toggle, system_prompt, agent)
     else
         system_prompt = ""
     end
-    local chat_agent = agent or M.get_chat_agent(M._state.chat_agent)
-    system_prompt = system_prompt ..
-                        _H.create_function_system_prompt(chat_agent)
-
     local template = string.format(M.chat_template,
                                    string.match(filename, "([^/]+)$"),
                                    model .. provider .. system_prompt,
@@ -3486,6 +3493,7 @@ end
 _H.create_llm_instruction_string = function(function_spec)
     local spec_copy = vim.deepcopy(function_spec)
     spec_copy.func = nil
+    spec_copy.llm_instruction = nil
     return vim.inspect(spec_copy)
 end
 
@@ -3496,17 +3504,17 @@ end
 --- @return string # A string representing the system prompt with details on available functions and call instructions.
 _H.create_function_system_prompt = function(agent)
     local function_prompt = ""
-    if agent.functions and next(agent.functions) ~= nil then
+    if agent.functions then
         function_prompt = "You have the following functions at your disposal.\n"
-        for _, fun in ipairs(agent.functions) do
+        for _, fun in pairs(agent.functions) do
             function_prompt = function_prompt .. fun.llm_instruction .. "\n"
         end
         function_prompt = function_prompt .. [[
-To call one of the functions provide the name and arguments in a json format.
+To call one of the functions, provide the name and arguments in a JSON format.
 All parameters are named.
-For example if you want to call the function myFunction and supply param1 with the string "value1", respond with the following json:
+For example, if you want to call the function myFunction and supply param1 with the string "value1", respond with the following JSON:
 ```json
-   '{"function_name": "myFunction", "args": {"param1": "value1"}}'
+   {"function_name": "myFunction", "args": {"param1": "value1"}}
 ```
 The User will respond with the result of the function as well as the function name and the used arguments.
 ]]
