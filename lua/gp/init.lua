@@ -1961,6 +1961,9 @@ M.new_chat = function(params, toggle, system_prompt, agent)
     else
         system_prompt = ""
     end
+    local chat_agent = agent or M.get_chat_agent(M._state.chat_agent)
+    system_prompt = system_prompt ..
+                        _H.create_function_system_prompt(chat_agent)
 
     local template = string.format(M.chat_template,
                                    string.match(filename, "([^/]+)$"),
